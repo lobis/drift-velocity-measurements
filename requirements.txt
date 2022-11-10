@@ -1,0 +1,9 @@
+
+matplotlib
+numpy
+uproot
+awkward
+scipy
+
+caenhv==0.0.1
+lecroyscope==0.0.4
