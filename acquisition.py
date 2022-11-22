@@ -7,16 +7,18 @@ import os
 from pathlib import Path
 import lecroyscope
 
-run = 21
-
 scope = lecroyscope.Scope("192.168.10.5")
+
+run = 4
+n_sequences = 8
+scope.num_segments = 2500
+scope.timeout = 10 * 60.
 
 print(scope.id)
 
+scope.trigger_mode = "Stopped"
 scope.sample_mode = "Sequence"
 print(f"Sample mode: {scope.sample_mode}")
-
-scope.num_segments = 200
 
 from caenhv import CaenHV
 
@@ -36,24 +38,11 @@ drift_gap = 10.0  # mm
 mesh_voltage = 340.0  # V
 hv_mesh.vset = mesh_voltage
 
-n_sequences = 100
-
 hv_drift.on()
 hv_mesh.on()
 
-# voltages = np.arange(312.5, 800, 50)
-voltages = np.arange(95, 815, 15)
-
-
-def _make_tree(file, _trace_group):
-    _n_points = len(_trace_group.time)
-    channels = {f"CH{trace.channel}": ("f4", (_n_points,)) for trace in _trace_group}
-    return file.mktree(
-        "t",
-        {"time": ("f4", (_n_points,)), "drift_voltage": np.float32, "mesh_voltage": np.float32, "drift_gap": np.float32,
-         **channels}, "Drift Velocity Measurement"
-    )
-
+# voltages = list(reversed(np.arange(40, 1015, 15)))
+voltages = [145., 160.]
 
 # voltages = np.linspace(50, 850, 81)[14:]
 # voltages = np.concatenate(([200], np.arange(650, 875, 25),))
@@ -73,22 +62,32 @@ for voltage in voltages:
     hv_drift.wait_for_vset(timeout=60)
     hv_mesh.wait_for_vset(timeout=60)
 
-    n_points = None
     tree = None
     for i in range(n_sequences):
         print(f"sequence {i + 1} of {n_sequences}")
-        if not scope.acquire(timeout=60):
+        if not scope.acquire():
             continue
 
         trace_group = scope.read(2, 3)
 
         if tree is None:
-            tree = _make_tree(output_file, trace_group)
+            branches = lecroyscope.writing.root.get_tree_branch_definitions(trace_group, drift_voltage=float,
+                                                                            mesh_voltage=float, drift_gap=float)
+            tree = output_file.mktree(
+                "t",
+                branches,
+                "EventTree",
+            )
 
-        n = len(trace_group[2])
-        data = {f"CH{trace.channel}": trace.y for trace in trace_group}
-        data_config = {"drift_voltage": n * [voltage], "mesh_voltage": n * [mesh_voltage], "drift_gap": n * [drift_gap]}
-        data = {"time": n * [trace_group.time], **data, **data_config}
+        data = lecroyscope.writing.root.get_tree_extend_data(
+            trace_group,
+            drift_voltage=voltage,
+            mesh_voltage=mesh_voltage,
+            drift_gap=drift_gap,
+        )
         tree.extend(data)
 
     output_file.close()
+
+hv_drift.off()
+hv_mesh.off()
