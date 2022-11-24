@@ -4,7 +4,7 @@ import uproot
 import os
 from pathlib import Path
 from multiprocessing import Process
-
+from tdqm import tdqm
 import lecroyscope
 from caenhv import CaenHV
 
@@ -57,13 +57,12 @@ hv_mesh.vset = mesh_voltage
 
 print("CAEN HV power supply - OK")
 
+analysis_process = None
 try:
     hv_drift.on()
     hv_mesh.on()
-
-    analysis_process = None
     for voltage in drift_voltages:
-        print(f"Mesh voltage: {mesh_voltage:0.1f} V, Drift voltage: {voltage:0.1f} V")
+        # print(f"Mesh voltage: {mesh_voltage:0.1f} V, Drift voltage: {voltage:0.1f} V")
 
         root_filename = run_dir / Path(
             f"gap_{drift_gap:0.1f}_mesh_{mesh_voltage:0.1f}_drift_{voltage:0.1f}.root"
@@ -77,7 +76,7 @@ try:
         hv_mesh.wait_for_vset(timeout=60)
 
         tree = None
-        for i in range(scope_n_sequences):
+        for i in tqdm(range(scope_n_sequences), desc=str(root_filename)):
             print(f"sequence {i + 1} of {scope_n_sequences}")
             if not scope.acquire():
                 continue
