@@ -4,6 +4,7 @@ numpy
 uproot
 awkward
 scipy
+tdqm
 
 caenhv==0.0.1
-lecroyscope==0.0.4
+lecroyscope==0.0.5
