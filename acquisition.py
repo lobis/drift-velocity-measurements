@@ -3,9 +3,12 @@ import numpy as np
 import uproot
 import os
 from pathlib import Path
+from multiprocessing import Process
 
 import lecroyscope
 from caenhv import CaenHV
+
+from .analysis import update_file_with_analysis
 
 # Run parameters
 drift_gap = 10.0  # mm
@@ -58,6 +61,7 @@ try:
     hv_drift.on()
     hv_mesh.on()
 
+    analysis_process = None
     for voltage in drift_voltages:
         print(f"Mesh voltage: {mesh_voltage:0.1f} V, Drift voltage: {voltage:0.1f} V")
 
@@ -99,6 +103,13 @@ try:
 
         output_file.close()
 
+        if analysis_process is not None:
+            analysis_process.join()
+        analysis_process = Process(target=update_file_with_analysis, args=(root_filename,))
+        analysis_process.start()
+
 finally:
+    if analysis_process is not None:
+        analysis_process.join()
     hv_drift.off()
     hv_mesh.off()
