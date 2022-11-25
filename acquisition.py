@@ -4,33 +4,37 @@ import uproot
 import os
 from pathlib import Path
 from multiprocessing import Process
-from tdqm import tdqm
+from tqdm import tqdm
 import lecroyscope
 from caenhv import CaenHV
 
-from .analysis import update_file_with_analysis
+from analysis import update_file_with_analysis
+
+print("Starting acquisition...")
 
 # Run parameters
 drift_gap = 10.0  # mm
 
 # HV power supply parameters
-mesh_voltage = 340.0  # V
-drift_voltages = np.arange(95, 815, 15)
+mesh_voltage = 365.0  # V
+drift_voltages = np.arange(50, 560, 10)
 print(f"Drift voltages: {drift_voltages}")
 
 # Oscilloscope parameters
 scope_ip = "192.168.10.5"
-scope_n_sequences = 8
-scope_num_segments = 2500
+scope_n_sequences = 50
+scope_num_segments = 500
 
 # run directory
-runs_dir = Path("runs")
+runs_dir = Path("/media/lo272082/Transcend/drift-velocity/data/25-11-2022")
 runs = list(filter(os.path.isdir, map(lambda x: runs_dir / x, os.listdir(runs_dir)))) if runs_dir.exists() else []
 run_numbers = set()
 for run in runs:
     try:
         run_numbers.add(int(run.name.split("_")[1]))
-    except Union[ValueError, IndexError]:
+    except ValueError:
+        pass
+    except IndexError:
         pass
 
 run_number = max(run_numbers) + 1 if len(run_numbers) > 0 else 1
@@ -57,13 +61,17 @@ hv_mesh.vset = mesh_voltage
 
 print("CAEN HV power supply - OK")
 
+def analysis(filename):
+    update_file_with_analysis(filename)
+    p = Path(filename)
+    os.rename(filename, p.parents[0] / Path("analysis_" + p.name))
+
 analysis_process = None
 try:
     hv_drift.on()
     hv_mesh.on()
     for voltage in drift_voltages:
-        # print(f"Mesh voltage: {mesh_voltage:0.1f} V, Drift voltage: {voltage:0.1f} V")
-
+        print(f"Mesh voltage: {mesh_voltage:0.1f} V, Drift voltage: {voltage:0.1f} V")
         root_filename = run_dir / Path(
             f"gap_{drift_gap:0.1f}_mesh_{mesh_voltage:0.1f}_drift_{voltage:0.1f}.root"
         )
@@ -72,12 +80,14 @@ try:
         hv_drift.vset = voltage
         hv_mesh.vset = mesh_voltage
 
-        hv_drift.wait_for_vset(timeout=60)
-        hv_mesh.wait_for_vset(timeout=60)
+        wait_vset_opt = {"timeout":10}
+        hv_drift.wait_for_vset(**wait_vset_opt)
+        hv_mesh.wait_for_vset(**wait_vset_opt)
+
+        print("Target voltages reached")
 
         tree = None
         for i in tqdm(range(scope_n_sequences), desc=str(root_filename)):
-            print(f"sequence {i + 1} of {scope_n_sequences}")
             if not scope.acquire():
                 continue
 
@@ -104,11 +114,13 @@ try:
 
         if analysis_process is not None:
             analysis_process.join()
-        analysis_process = Process(target=update_file_with_analysis, args=(root_filename,))
+        analysis_process = Process(target=analysis, args=(root_filename,))
         analysis_process.start()
 
 finally:
+    #hv_drift.off()
+    #hv_mesh.off()
     if analysis_process is not None:
         analysis_process.join()
-    hv_drift.off()
-    hv_mesh.off()
+
+print("Finished acquisition!")

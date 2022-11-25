@@ -5,7 +5,7 @@ import scipy
 import os
 from pathlib import Path
 from tqdm import tqdm
-
+import time
 
 def peak_analysis(
         x: np.ndarray, peak_pcts: np.ndarray = np.array([0.5]), n_average: int = 50
@@ -49,10 +49,7 @@ def update_file_with_analysis(filename):
 
     peak_data = {key: np.zeros(n) for key in peak_data}
 
-    for i in tqdm(range(n)):
-        if i % 1000 == 0:
-            pass
-            # print(f"{100*i/n:0.2f}%")
+    for i in range(n):
         x = data["time"][i]
         y = data["CH3"][i]
         idxs, peak_index, peak_base, peak_height = peak_analysis(
