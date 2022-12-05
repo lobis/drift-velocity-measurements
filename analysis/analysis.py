@@ -69,3 +69,28 @@ def update_file_with_analysis(filename):
 
     with uproot.recreate(filename) as f:
         f[tree_name] = data_new
+
+def drift_times_analysis(times: np.ndarray, bins: int = 50):
+    def reject_outliers(data, m=10.0):
+        d = np.abs(data - np.median(data))
+        mdev = np.median(d)
+        s = d / mdev if mdev else 0.0
+        return data[s < m]
+
+    def histogram_with_centers(_x: np.ndarray, **kwargs):
+        counts, edges = np.histogram(_x, **kwargs)
+        centers = 0.5 * (edges[:-1] + edges[1:])
+        return centers, counts
+
+    times = reject_outliers(times)
+
+    x, y = histogram_with_centers(times, bins=bins)
+
+    def fit_function(x, amplitude, center, sigma):
+        return amplitude * np.exp(-((x - center) ** 2) / (2 * sigma**2))
+
+    initial_guess = [np.max(y), np.median(times), np.std(times)]
+    p, _ = scipy.optimize.curve_fit(fit_function, x, y, p0=initial_guess)
+
+    mean, sigma = p[1], p[2]
+    return mean, sigma

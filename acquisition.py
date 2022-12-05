@@ -8,25 +8,27 @@ from tqdm import tqdm
 import lecroyscope
 from caenhv import CaenHV
 
-from analysis import update_file_with_analysis
+from analysis import update_file_with_analysis, drift_times_analysis
 
 print("Starting acquisition...")
 
 # Run parameters
-drift_gap = 10.0  # mm
-
+drift_gap = 5.0  # mm
+quencher_pct = 10.0 # quencher percentage
 # HV power supply parameters
-mesh_voltage = 365.0  # V
-drift_voltages = np.arange(50, 560, 10)
+mesh_voltage = 390.0  # V
+
+drift_voltages = np.arange(20, 610, 10)
+# drift_voltages = [v for v in np.arange(110, 600, 5) if v not in drift_voltages]
 print(f"Drift voltages: {drift_voltages}")
 
 # Oscilloscope parameters
 scope_ip = "192.168.10.5"
-scope_n_sequences = 50
+scope_n_sequences = 10
 scope_num_segments = 500
 
 # run directory
-runs_dir = Path("/media/lo272082/Transcend/drift-velocity/data/25-11-2022")
+runs_dir = Path("/media/lo272082/Transcend/drift-velocity/data/05-12-2022")
 runs = list(filter(os.path.isdir, map(lambda x: runs_dir / x, os.listdir(runs_dir)))) if runs_dir.exists() else []
 run_numbers = set()
 for run in runs:
@@ -64,7 +66,15 @@ print("CAEN HV power supply - OK")
 def analysis(filename):
     update_file_with_analysis(filename)
     p = Path(filename)
-    os.rename(filename, p.parents[0] / Path("analysis_" + p.name))
+    new_name = p.parents[0] / Path("analysis_" + p.name)
+    os.rename(filename, new_name)
+
+    with uproot.open(new_name) as f:
+        tree = f["t"]
+        for time_observable in ["RT20", "RT30", "RT40", "RT50", "RT90"]:
+            times = tree[time_observable].array()
+            mean, sigma = drift_times_analysis(times)
+            print(f"{time_observable}: {mean} +- {sigma}")
 
 analysis_process = None
 try:
@@ -75,42 +85,41 @@ try:
         root_filename = run_dir / Path(
             f"gap_{drift_gap:0.1f}_mesh_{mesh_voltage:0.1f}_drift_{voltage:0.1f}.root"
         )
-        output_file = uproot.recreate(root_filename)
+        with uproot.recreate(root_filename) as output_file:
 
-        hv_drift.vset = voltage
-        hv_mesh.vset = mesh_voltage
+            hv_drift.vset = voltage
+            hv_mesh.vset = mesh_voltage
 
-        wait_vset_opt = {"timeout":10}
-        hv_drift.wait_for_vset(**wait_vset_opt)
-        hv_mesh.wait_for_vset(**wait_vset_opt)
+            wait_vset_opt = {"timeout":20}
+            hv_drift.wait_for_vset(**wait_vset_opt)
+            hv_mesh.wait_for_vset(**wait_vset_opt)
 
-        print("Target voltages reached")
+            print("Target voltages reached")
 
-        tree = None
-        for i in tqdm(range(scope_n_sequences), desc=str(root_filename)):
-            if not scope.acquire():
-                continue
+            tree = None
+            for i in tqdm(range(scope_n_sequences), desc=str(root_filename)):
+                if not scope.acquire():
+                    continue
 
-            trace_group = scope.read(2, 3)
+                trace_group = scope.read(2, 3)
 
-            if tree is None:
-                branches = lecroyscope.writing.root.get_tree_branch_definitions(trace_group, drift_voltage=float,
-                                                                                mesh_voltage=float, drift_gap=float)
-                tree = output_file.mktree(
-                    "t",
-                    branches,
-                    "EventTree",
+                if tree is None:
+                    branches = lecroyscope.writing.root.get_tree_branch_definitions(trace_group, drift_voltage=float,
+                                                                                    mesh_voltage=float, drift_gap=float,quencher_pct=float)
+                    tree = output_file.mktree(
+                        "t",
+                        branches,
+                        "EventTree",
+                    )
+
+                data = lecroyscope.writing.root.get_tree_extend_data(
+                    trace_group,
+                    drift_voltage=voltage,
+                    mesh_voltage=mesh_voltage,
+                    drift_gap=drift_gap,
+                    quencher_pct=quencher_pct,
                 )
-
-            data = lecroyscope.writing.root.get_tree_extend_data(
-                trace_group,
-                drift_voltage=voltage,
-                mesh_voltage=mesh_voltage,
-                drift_gap=drift_gap,
-            )
-            tree.extend(data)
-
-        output_file.close()
+                tree.extend(data)
 
         if analysis_process is not None:
             analysis_process.join()
@@ -118,8 +127,8 @@ try:
         analysis_process.start()
 
 finally:
-    #hv_drift.off()
-    #hv_mesh.off()
+    hv_drift.off()
+    hv_mesh.off()
     if analysis_process is not None:
         analysis_process.join()
 
