@@ -15,6 +15,10 @@ def peak_analysis(
     peaks, _ = scipy.signal.find_peaks(x, distance=len(x) // 10)
     prominences = scipy.signal.peak_prominences(x, peaks)[0]
 
+    if len(prominences) == 0:
+        print("WARNING: peak analysis failed, returning zeros")
+        return [], 0, 0, 0
+
     # get the highest peak
     argmax = np.argmax(prominences)
     peak_index = peaks[argmax]
@@ -90,7 +94,11 @@ def drift_times_analysis(times: np.ndarray, bins: int = 50):
         return amplitude * np.exp(-((x - center) ** 2) / (2 * sigma**2))
 
     initial_guess = [np.max(y), np.median(times), np.std(times)]
-    p, _ = scipy.optimize.curve_fit(fit_function, x, y, p0=initial_guess)
+    try:
+        p, _ = scipy.optimize.curve_fit(fit_function, x, y, p0=initial_guess)
 
-    mean, sigma = p[1], p[2]
-    return mean, sigma
+        mean, sigma = p[1], p[2]
+        return mean, sigma
+    except RuntimeError:
+        print("WARNING: fit failed")
+        return 0, 0

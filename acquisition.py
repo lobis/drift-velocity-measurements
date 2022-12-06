@@ -14,11 +14,12 @@ print("Starting acquisition...")
 
 # Run parameters
 drift_gap = 5.0  # mm
-quencher_pct = 10.0 # quencher percentage
+quencher_pct = 2.0 # quencher percentage
 # HV power supply parameters
-mesh_voltage = 390.0  # V
+mesh_voltage = 350.0  # V
 
-drift_voltages = np.arange(20, 610, 10)
+drift_voltages = np.arange(20, 490, 10)
+drift_voltages = [80]
 # drift_voltages = [v for v in np.arange(110, 600, 5) if v not in drift_voltages]
 print(f"Drift voltages: {drift_voltages}")
 
