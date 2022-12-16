@@ -7,19 +7,35 @@ from multiprocessing import Process
 from tqdm import tqdm
 import lecroyscope
 from caenhv import CaenHV
+import time
 
 from analysis import update_file_with_analysis, drift_times_analysis
 
 print("Starting acquisition...")
 
 # Run parameters
-drift_gap = 5.0  # mm
-quencher_pct = 2.0 # quencher percentage
-# HV power supply parameters
-mesh_voltage = 350.0  # V
+drift_gap = 7.5  # mm
+quencher_pct = 10.0 # quencher percentage
 
-drift_voltages = np.arange(20, 490, 10)
-drift_voltages = [80]
+quencher_to_mesh_voltage = {
+    1.0: 335.,
+    1.5: 340.,
+    2.0: 340.,
+    2.5: 345.,
+    3.0: 350.,
+    4.0: 355.,
+    5.0: 360.,
+    8.0: 380.,
+    10.0: 390.,
+}
+# HV power supply parameters
+mesh_voltage = quencher_to_mesh_voltage[quencher_pct]  # V
+
+drift_field_values = np.array(list(reversed(np.concatenate((np.arange(30, 600, 10), np.arange(600, 1220, 20))))))
+# np.linspace(30, 1200, 60)
+drift_voltages = drift_field_values * (drift_gap / 10.)
+drift_voltages = [v for v in drift_voltages if v <= 850.]
+# np.arange(10, 370, 10)
 # drift_voltages = [v for v in np.arange(110, 600, 5) if v not in drift_voltages]
 print(f"Drift voltages: {drift_voltages}")
 
@@ -29,7 +45,7 @@ scope_n_sequences = 10
 scope_num_segments = 500
 
 # run directory
-runs_dir = Path("/media/lo272082/Transcend/drift-velocity/data/05-12-2022")
+runs_dir = Path("/media/lo272082/Transcend/drift-velocity/data/run_7.5mm")
 runs = list(filter(os.path.isdir, map(lambda x: runs_dir / x, os.listdir(runs_dir)))) if runs_dir.exists() else []
 run_numbers = set()
 for run in runs:
@@ -57,8 +73,11 @@ module = caen[0]
 hv_mesh = module.channel(1)
 hv_drift = module.channel(2)
 
-hv_mesh.rup = 20.0
-hv_drift.rup = 20.0
+ramp = 10.
+hv_mesh.rup = ramp
+hv_drift.rup = ramp
+hv_mesh.rdw = ramp
+hv_drift.rdw = ramp
 
 hv_mesh.vset = mesh_voltage
 
@@ -72,17 +91,18 @@ def analysis(filename):
 
     with uproot.open(new_name) as f:
         tree = f["t"]
-        for time_observable in ["RT20", "RT30", "RT40", "RT50", "RT90"]:
+        for time_observable in ["RT20", "RT30", "RT40", "RT50", "RT60", "RT70", "RT90"]:
             times = tree[time_observable].array()
             mean, sigma = drift_times_analysis(times)
-            print(f"{time_observable}: {mean} +- {sigma}")
+            print(f"{time_observable}: {mean * 1E6 :0.4f} +- {sigma * 1E6 : 0.4f} us")
 
 analysis_process = None
 try:
     hv_drift.on()
     hv_mesh.on()
-    for voltage in drift_voltages:
-        print(f"Mesh voltage: {mesh_voltage:0.1f} V, Drift voltage: {voltage:0.1f} V")
+    for i, voltage in enumerate(drift_voltages):
+        now = time.time()
+        print(f"Mesh voltage: {mesh_voltage:0.1f} V, Drift voltage: {voltage:0.1f} V - {i / len(drift_voltages) * 100:0.2f}% - {i + 1} of {len(drift_voltages)}")
         root_filename = run_dir / Path(
             f"gap_{drift_gap:0.1f}_mesh_{mesh_voltage:0.1f}_drift_{voltage:0.1f}.root"
         )
@@ -126,6 +146,7 @@ try:
             analysis_process.join()
         analysis_process = Process(target=analysis, args=(root_filename,))
         analysis_process.start()
+        print(f"time elapsed: {time.time() - now:0.2f} seconds")
 
 finally:
     hv_drift.off()
